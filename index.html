@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Планировщик рекламных кампаний</title>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      --tg: #4CAF50;
+      --vk: #4267B2;
+      --youtube: #FF0000;
+      --banner: #9C27B0;
+      --email: #2196F3;
+      --custom: #795548;
+    }
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f9f9f9;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    h1, h2 {
+      color: #333;
+    }
+    .section {
+      background: white;
+      padding: 16px;
+      margin-bottom: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .channel-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .channel-card {
+      flex: 1 1 200px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 12px;
+      background: #fafafa;
+    }
+    .calendar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 2px;
+    }
+    .calendar-day-header {
+      text-align: center;
+      font-weight: bold;
+      padding: 6px;
+      background: #eee;
+    }
+    .calendar-day {
+      min-height: 100px;
+      padding: 6px;
+      background: #fff;
+      border: 1px solid #ddd;
+      font-size: 0.85em;
+    }
+    .calendar-day.other-month {
+      background: #f5f5f5;
+      color: #aaa;
+    }
+    .slot {
+      display: block;
+      margin-top: 4px;
+      padding: 4px;
+      border-radius: 3px;
+      font-size: 0.8em;
+      cursor: pointer;
+      color: white;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .slot[data-channel="tg"] { background: var(--tg); }
+    .slot[data-channel="vk"] { background: var(--vk); }
+    .slot[data-channel="youtube"] { background: var(--youtube); }
+    .slot[data-channel="banner"] { background: var(--banner); }
+    .slot[data-channel="email"] { background: var(--email); }
+    .slot[data-channel^="ch_"] { background: var(--custom); }
+
+    button {
+      padding: 8px 12px;
+      margin-right: 8px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover { background: #0056b3; }
+    .danger { background: #dc3545; }
+    .danger:hover { background: #c82333; }
+
+    /* Модальные окна */
+    .modal {
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-content {
+      background-color: white;
+      padding: 24px;
+      border-radius: 8px;
+      width: 90%;
+      max-width: 500px;
+    }
+    .close {
+      float: right;
+      font-size: 24px;
+      cursor: pointer;
+      color: #888;
+    }
+    form label {
+      display: block;
+      margin: 10px 0 4px;
+    }
+    form input, form select, form textarea {
+      width: 100%;
+      padding: 6px;
+      margin-bottom: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    form textarea {
+      height: 60px;
+      resize: vertical;
+    }
+    .multi-select {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .multi-select label {
+      display: inline-flex;
+      align-items: center;
+      margin: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Планировщик рекламных кампаний</h1>
+
+    <!-- Управление каналами -->
+    <div class="section">
+      <h2>Рекламные каналы</h2>
+      <div class="channel-list" id="channelList"></div>
+      <button onclick="openAddChannelModal()">+ Добавить канал</button>
+    </div>
+
+    <!-- Добавление контента -->
+    <div class="section">
+      <h2>+ Добавить контент</h2>
+      <form id="bulkAdForm">
+        <label>Дата размещения:
+          <input type="date" id="bulkAdDate" required>
+        </label>
+        <label>Выберите каналы:
+          <div class="multi-select" id="bulkChannelCheckboxes"></div>
+        </label>
+        <label>Текст сообщения:
+          <input type="text" id="bulkAdMessage" required>
+        </label>
+        <label>Комментарий:
+          <textarea id="bulkAdComment" placeholder="Необязательно"></textarea>
+        </label>
+        <button type="submit">Добавить во все выбранные каналы</button>
+      </form>
+    </div>
+
+    <!-- Календарь -->
+    <div class="section">
+      <div class="calendar-header">
+        <h2 id="calendarTitle">Октябрь 2025</h2>
+        <div>
+          <button onclick="changeMonth(-1)">← Пред.</button>
+          <button onclick="changeMonth(1)">След. →</button>
+          <button onclick="exportToXLS()">📥 Экспорт в XLS</button>
+        </div>
+      </div>
+      <div class="calendar-grid" id="calendarGrid"></div>
+    </div>
+
+    <!-- Модальное окно для рекламного сообщения -->
+    <div id="adModal" class="modal">
+      <div class="modal-content">
+        <span class="close" onclick="closeAdModal()">&times;</span>
+        <h3 id="adModalTitle">Редактировать сообщение</h3>
+        <form id="adForm">
+          <input type="hidden" id="editAdId" value="">
+          <label>Дата:
+            <input type="date" id="adDate" readonly>
+          </label>
+          <label>Канал:
+            <select id="adChannel" disabled></select>
+          </label>
+          <label>Текст сообщения:
+            <input type="text" id="adMessage" required>
+          </label>
+          <label>Комментарий:
+            <textarea id="adComment"></textarea>
+          </label>
+          <button type="submit">Сохранить</button>
+          <button type="button" class="danger" onclick="deleteCurrentAd()">Удалить</button>
+          <button type="button" onclick="closeAdModal()">Отмена</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Модальное окно для канала -->
+    <div id="channelModal" class="modal">
+      <div class="modal-content">
+        <span class="close" onclick="closeChannelModal()">&times;</span>
+        <h3 id="channelModalTitle">Добавить канал</h3>
+        <form id="channelForm">
+          <input type="hidden" id="editChannelId" value="">
+          <label>Название:
+            <input type="text" id="channelName" required>
+          </label>
+          <label>Тип:
+            <select id="channelType" required>
+              <option value="tg">Telegram</option>
+              <option value="vk">VK</option>
+              <option value="youtube">YouTube</option>
+              <option value="banner">Баннер</option>
+              <option value="email">Email</option>
+              <option value="custom">Другой</option>
+            </select>
+          </label>
+          <label>Слоты в неделю:
+            <input type="number" id="slotCount" min="1" value="1" required>
+          </label>
+          <button type="submit">Сохранить</button>
+          <button type="button" class="danger" id="deleteChannelBtn" style="display:none;" onclick="confirmDeleteChannel()">Удалить канал</button>
+          <button type="button" onclick="closeChannelModal()">Отмена</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // === Данные ===
+    let currentYear = 2025;
+    let currentMonth = 9; // октябрь (0-based)
+    let channels = [
+      { id: 'tg', name: 'Telegram', type: 'tg', weeklySlots: 3 },
+      { id: 'vk', name: 'VK', type: 'vk', weeklySlots: 2 },
+      { id: 'youtube', name: 'YouTube', type: 'youtube', weeklySlots: 1 },
+      { id: 'banner', name: 'Баннер', type: 'banner', weeklySlots: 5 }
+    ];
+    let ads = []; // { id, date (YYYY-MM-DD), channelId, message, comment }
+
+    // === Вспомогательные функции ===
+    function getDaysInMonth(year, month) {
+      return new Date(year, month + 1, 0).getDate();
+    }
+    function getFirstDayOfMonth(year, month) {
+      return new Date(year, month, 1).getDay(); // 0 = воскресенье
+    }
+    function formatDate(date) {
+      return date.toISOString().split('T')[0]; // YYYY-MM-DD
+    }
+
+    // === Календарь ===
+    function renderCalendar() {
+      const title = document.getElementById('calendarTitle');
+      const months = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+      title.textContent = `${months[currentMonth]} ${currentYear}`;
+
+      const grid = document.getElementById('calendarGrid');
+      grid.innerHTML = '';
+
+      ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].forEach(day => {
+        const el = document.createElement('div');
+        el.className = 'calendar-day-header';
+        el.textContent = day;
+        grid.appendChild(el);
+      });
+
+      const daysInMonth = getDaysInMonth(currentYear, currentMonth);
+      const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
+      let startOffset = (firstDay === 0 ? 6 : firstDay - 1);
+
+      for (let i = 0; i < startOffset; i++) {
+        const dayEl = document.createElement('div');
+        dayEl.className = 'calendar-day other-month';
+        const d = new Date(currentYear, currentMonth, -startOffset + i + 1);
+        dayEl.textContent = d.getDate();
+        grid.appendChild(dayEl);
+      }
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        const date = new Date(currentYear, currentMonth, day);
+        const dayStr = formatDate(date);
+        const dayEl = document.createElement('div');
+        dayEl.className = 'calendar-day';
+        dayEl.dataset.date = dayStr;
+        dayEl.innerHTML = `<strong>${day}</strong>`;
+
+        const dayAds = ads.filter(a => a.date === dayStr);
+        dayAds.forEach(ad => {
+          const slot = document.createElement('div');
+          slot.className = 'slot';
+          slot.dataset.channel = ad.channelId;
+          slot.title = ad.comment || '';
+          const ch = channels.find(c => c.id === ad.channelId);
+          slot.textContent = `${ch?.name || ad.channelId}: ${ad.message}`;
+          slot.onclick = () => openAdModal(ad);
+          dayEl.appendChild(slot);
+        });
+
+        grid.appendChild(dayEl);
+      }
+
+      const total = grid.children.length;
+      const remaining = 42 - total;
+      for (let i = 1; i <= remaining; i++) {
+        const dayEl = document.createElement('div');
+        dayEl.className = 'calendar-day other-month';
+        const d = new Date(currentYear, currentMonth + 1, i);
+        dayEl.textContent = d.getDate();
+        grid.appendChild(dayEl);
+      }
+    }
+
+    function changeMonth(delta) {
+      currentMonth += delta;
+      if (currentMonth < 0) { currentMonth = 11; currentYear--; }
+      else if (currentMonth > 11) { currentMonth = 0; currentYear++; }
+      renderCalendar();
+    }
+
+    // === Каналы ===
+    function renderChannelList() {
+      const list = document.getElementById('channelList');
+      list.innerHTML = '';
+      channels.forEach(ch => {
+        const card = document.createElement('div');
+        card.className = 'channel-card';
+        card.innerHTML = `
+          <h3>${ch.name}</h3>
+          <p>Слоты в неделю: ${ch.weeklySlots}</p>
+          <button type="button" onclick="editChannel('${ch.id}')">Редактировать</button>
+        `;
+        list.appendChild(card);
+      });
+      renderBulkChannelCheckboxes();
+    }
+
+    function renderBulkChannelCheckboxes() {
+      const container = document.getElementById('bulkChannelCheckboxes');
+      container.innerHTML = '';
+      channels.forEach(ch => {
+        const label = document.createElement('label');
+        label.innerHTML = `<input type="checkbox" value="${ch.id}"> ${ch.name}`;
+        container.appendChild(label);
+      });
+    }
+
+    function openAddChannelModal() {
+      document.getElementById('channelModalTitle').textContent = 'Добавить канал';
+      document.getElementById('editChannelId').value = '';
+      document.getElementById('channelName').value = '';
+      document.getElementById('channelType').value = 'tg';
+      document.getElementById('slotCount').value = 1;
+      document.getElementById('deleteChannelBtn').style.display = 'none';
+      document.getElementById('channelModal').style.display = 'flex';
+    }
+
+    function editChannel(id) {
+      const ch = channels.find(c => c.id === id);
+      if (!ch) return;
+      document.getElementById('channelModalTitle').textContent = 'Редактировать канал';
+      document.getElementById('editChannelId').value = ch.id;
+      document.getElementById('channelName').value = ch.name;
+      document.getElementById('channelType').value = ch.type;
+      document.getElementById('slotCount').value = ch.weeklySlots;
+      document.getElementById('deleteChannelBtn').style.display = 'inline-block';
+      document.getElementById('channelModal').style.display = 'flex';
+    }
+
+    function confirmDeleteChannel() {
+      const id = document.getElementById('editChannelId').value;
+      if (!confirm('Удалить канал и все его сообщения?')) return;
+      channels = channels.filter(c => c.id !== id);
+      ads = ads.filter(a => a.channelId !== id);
+      renderChannelList();
+      renderCalendar();
+      closeChannelModal();
+    }
+
+    function closeChannelModal() {
+      document.getElementById('channelModal').style.display = 'none';
+    }
+
+    document.getElementById('channelForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const id = document.getElementById('editChannelId').value || 'ch_' + Date.now();
+      const name = document.getElementById('channelName').value.trim();
+      const type = document.getElementById('channelType').value;
+      const weeklySlots = parseInt(document.getElementById('slotCount').value);
+      if (!name) return;
+
+      const idx = channels.findIndex(c => c.id === id);
+      if (idx >= 0) {
+        channels[idx] = { id, name, type, weeklySlots };
+      } else {
+        channels.push({ id, name, type, weeklySlots });
+      }
+      renderChannelList();
+      renderCalendar();
+      closeChannelModal();
+    });
+
+    // === Рекламные сообщения ===
+    function openAdModal(ad) {
+      document.getElementById('adModalTitle').textContent = 'Редактировать сообщение';
+      document.getElementById('editAdId').value = ad.id;
+      document.getElementById('adDate').value = ad.date;
+      document.getElementById('adChannel').value = ad.channelId;
+      document.getElementById('adMessage').value = ad.message;
+      document.getElementById('adComment').value = ad.comment || '';
+      document.getElementById('adModal').style.display = 'flex';
+    }
+
+    function deleteCurrentAd() {
+      const id = document.getElementById('editAdId').value;
+      if (!confirm('Удалить это сообщение?')) return;
+      ads = ads.filter(a => a.id !== id);
+      renderCalendar();
+      closeAdModal();
+    }
+
+    function closeAdModal() {
+      document.getElementById('adModal').style.display = 'none';
+    }
+
+    document.getElementById('adForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const id = document.getElementById('editAdId').value;
+      const ad = ads.find(a => a.id === id);
+      if (!ad) return;
+      ad.message = document.getElementById('adMessage').value.trim();
+      ad.comment = document.getElementById('adComment').value.trim();
+      renderCalendar();
+      closeAdModal();
+    });
+
+    // === Массовое добавление контента ===
+    document.getElementById('bulkAdForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const date = document.getElementById('bulkAdDate').value;
+      const message = document.getElementById('bulkAdMessage').value.trim();
+      const comment = document.getElementById('bulkAdComment').value.trim();
+      const selected = Array.from(document.querySelectorAll('#bulkChannelCheckboxes input:checked'))
+                           .map(cb => cb.value);
+
+      if (selected.length === 0) {
+        alert('Выберите хотя бы один канал.');
+        return;
+      }
+      if (!message) {
+        alert('Введите текст сообщения.');
+        return;
+      }
+
+      selected.forEach(channelId => {
+        ads.push({
+          id: 'ad_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+          date,
+          channelId,
+          message,
+          comment
+        });
+      });
+
+      renderCalendar();
+      this.reset();
+      alert(`✅ Сообщение добавлено в ${selected.length} канал(ов).`);
+    });
+
+    // === Экспорт в XLS ===
+    function exportToXLS() {
+      const data = [['Дата', 'Канал', 'Сообщение', 'Комментарий']];
+      const sorted = [...ads].sort((a, b) => a.date.localeCompare(b.date));
+      sorted.forEach(ad => {
+        const ch = channels.find(c => c.id === ad.channelId);
+        data.push([ad.date, ch?.name || ad.channelId, ad.message, ad.comment || '']);
+      });
+      const ws = XLSX.utils.aoa_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "План");
+      XLSX.writeFile(wb, `Рекламный_план_${currentYear}_${String(currentMonth + 1).padStart(2, '0')}.xlsx`);
+    }
+
+    // === Инициализация ===
+    window.onclick = function(e) {
+      if (e.target.classList.contains('modal')) e.target.style.display = 'none';
+    };
+
+    // Установить сегодняшнюю дату по умолчанию
+    document.getElementById('bulkAdDate').valueAsDate = new Date();
+
+    renderChannelList();
+    renderCalendar();
+  </script>
+</body>
+</html>
